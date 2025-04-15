@@ -1,0 +1,159 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+## Global Fuel Import Dependency in 2022
+
+##### [Hiba Zaidi](https://www.linkedin.com/in/hibazaidi/)
+
+This heatmap visualizes global fuel import dependency in 2022, focusing on products classified under HS Code 27 — mineral fuels, oils, and related materials. Globally, developing economies in Africa, Latin America, and parts of Asia show significant exposure, reflecting vulnerability to global price shocks.
+
+The European region tells an urgent story of the severity of fuel dependency among countries like Germany, Hungary, and Slovakia, many of which historically sourced a significant share of their energy from Russia. Before the invasion of Ukraine, the Russian Federation was one of the top global fuel exporters. However, the war in 2022 catalyzed a rapid reorientation of Europe’s energy strategy. Countries rushed to diversify supply chains, increase LNG imports, and invest in renewables. The map captures this pre-shift snapshot, making visible the vulnerabilities that fueled Europe’s urgent pivot away from Russian energy, with broad implications for global trade, energy markets, and geopolitical alliances.
+
+
+```{r, fig.width=12, fig.height=6.5, dpi=200, warning=FALSE, message=FALSE, echo=FALSE, include=TRUE}
+# Load required libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(rnaturalearth)
+library(scales)
+library(countrycode)
+library(cowplot)
+library(ggnewscale)
+
+library(readxl)
+
+# Google Drive direct download link template
+file_id <- "18lT_VPlRWpnHEtC69vNhYvDjTNZ2mcL0"  
+url <- sprintf("https://drive.google.com/uc?export=download&id=%s", file_id)
+
+# Download and read the file
+destfile <- tempfile(fileext = ".xlsx")
+download.file(url, destfile, mode = "wb")
+
+# Read the 'Partner' sheet
+fuel_data <- read_excel(destfile, sheet = "Partner")
+
+fuel_imports <- fuel_data %>%
+  select(country = `Partner Name`, fuel_share = `Import Product Share (%)`) %>%
+  mutate(fuel_share = as.numeric(fuel_share))
+
+# Standardize country names
+fuel_imports$country <- countrycode(fuel_imports$country,
+                                    origin = 'country.name',
+                                    destination = 'country.name')
+
+manual_fixes <- c(
+  "Bahamas, The" = "Bahamas",
+  "Czech Republic" = "Czechia",
+  "Dominican Republic" = "Dominican Rep.",
+  "Egypt, Arab Rep." = "Egypt",
+  "Cote d'Ivoire" = "Ivory Coast",
+  "Congo, Rep." = "Republic of Congo",
+  "Congo, Dem. Rep." = "Democratic Republic of the Congo",
+  "Gambia, The" = "Gambia",
+  "Hong Kong, China" = "Hong Kong",
+  "Iran, Islamic Rep." = "Iran",
+  "Kyrgyz Republic" = "Kyrgyzstan",
+  "Korea, Rep." = "South Korea",
+  "Korea, Dem. Rep." = "North Korea",
+  "Lao PDR" = "Laos",
+  "Russian Federation" = "Russia",
+  "Serbia, FR(Serbia/Montenegro)" = "Serbia",
+  "Slovak Republic" = "Slovakia",
+  "Syrian Arab Republic" = "Syria",
+  "Eswatini" = "Swaziland",
+  "St. Vincent and the Grenadines" = "Saint Vincent and the Grenadines",
+  "St. Lucia" = "Saint Lucia",
+  "United States" = "United States of America"
+)
+fuel_imports$country <- recode(fuel_imports$country, !!!manual_fixes)
+
+# Remove non-countries
+fuel_imports <- fuel_imports %>%
+  filter(!country %in% c("Free Zones", "Unspecified", "Other Asia, nes",
+                         "Special Categories", "Bunkers", "Occ.Pal.Terr",
+                         "United States Minor Outlying I"))
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+map_data <- world %>%
+  left_join(fuel_imports, by = c("name" = "country"))
+
+map_data$has_data <- ifelse(is.na(map_data$fuel_share), "No Data", NA)
+
+# WORLD MAP
+plot_world <- ggplot() +
+  geom_sf(data = map_data, aes(fill = fuel_share), color = "white", size = 0.1) +
+  scale_fill_gradientn(
+    name = "Fuel Import Share (%)",
+    colours = c("#ffffcc", "#ffe082", "#feb24c", "#fd8d3c", "#f03b20", "#bd0026", "#800026"),
+    na.value = NA,
+    breaks = c(0, 25, 50, 75, 100),
+    labels = c("0%", "25%", "50%", "75", "100%"),
+    guide = guide_colorbar(
+      barwidth = 15, barheight = 0.6,
+      title.position = "top", title.hjust = 0.5,
+      label.position = "bottom", label.theme = element_text(size = 9)
+    )
+  ) +
+  new_scale_fill() +
+  geom_sf(data = subset(map_data, !is.na(has_data)), aes(fill = has_data), color = NA) +
+  scale_fill_manual(
+    name = "",
+    values = c("No Data" = "gray80"),
+    guide = guide_legend(override.aes = list(size = 5))
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    axis.text = element_blank(), axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    plot.caption = element_blank()
+  ) +
+  labs(
+    title = "Global View",
+    subtitle = "Fuel Import Share (%), 2022"
+  )
+
+# EUROPE MAP
+plot_europe <- ggplot(data = map_data) +
+  geom_sf(aes(fill = fuel_share), color = "white", size = 0.1) +
+  coord_sf(xlim = c(-25, 45), ylim = c(34, 72), expand = FALSE) +
+  scale_fill_gradientn(
+    name = "Fuel Import Share (%)",
+    colours = c("#ffffcc", "#ffe082", "#feb24c", "#fd8d3c", "#f03b20", "#bd0026", "#800026"),
+    na.value = "gray80"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text = element_blank(), axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10)
+  ) +
+  labs(
+    title = "Zoomed View: Europe",
+    subtitle = "Fuel Import Share (%), 2022"
+  )
+
+# COMBINE PLOTS
+combined <- plot_grid(plot_world, plot_europe, labels = NULL, ncol = 2, rel_widths = c(1.5, 1))
+
+final <- ggdraw() +
+  draw_plot(combined, 0, 0.08, 1, 0.9) +
+  draw_label("Data source: World Bank WITS\nGraph by Hiba Zaidi",
+             x = 0.01, y = 0.035, hjust = 0, size = 10)
+
+print(final)
+
+
+```
+
+I’m a fourth-year Economics major with a dual minor in Political Science and Business. As an international student who grew up in the Middle East, I’ve always been curious about how global oil flows shape politics, trade, and power. Fuel is more than just a commodity — it’s leverage, it’s vulnerability, and it’s often at the heart of major global events. By visualizing fuel import dependency, especially in the aftermath of Russia’s invasion of Ukraine, I wanted to explore how trade data reflects deeper stories: of energy insecurity, shifting alliances, and economic resilience. I’m currently in my final semester and open to work opportunities. If you’d like to connect, feel free to reach out via LinkedIn or email (hibazzaidi@gmail.com) — I’d love to chat.
+
